@@ -1,0 +1,10 @@
+.DS_Store
+mysql-data/
+waha-sessions/
+logs/
+*.log
+.env
+.idea/
+.vscode/
+deepprint/
+openwa/

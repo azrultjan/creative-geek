@@ -1,0 +1,177 @@
+
+Warning: file_put_contents(/var/www/logs/cron_exec.log): Failed to open stream: No such file or directory in /var/www/html/cron/send_ready_notification.php on line 8
+
+Warning: Undefined variable $now in /var/www/html/cron/send_ready_notification.php on line 23
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../includes/functions.php';
+
+// ===== DEBUG: Tulis log eksekusi =====
+file_put_contents('/var/www/logs/cron_exec.log', date('Y-m-d H:i:s') . " - Cron executed\n", FILE_APPEND);
+
+// ===== Ambil waktu sekarang =====
+$now = date('Y-m-d H:i:s');
+
+// ===== Query order =====
+$stmt = $pdo->prepare("
+    SELECT o.id, o.order_number, o.operator_id,
+           c.name AS customer_name, 
+           c.phone,
+           u.username AS operator_name
+    FROM orders o
+    JOIN customers c ON o.customer_id = c.id
+    LEFT JOIN users u ON o.operator_id = u.id
+    WHERE o.status = 'siap_ambil'
+      AND o.notified = 0
+      AND o.finish_time <= ?
+");
+$stmt->execute([$now]);
+$orders = $stmt->fetchAll();
+
+foreach ($orders as $order) {
+    if (empty($order['phone'])) {
+        $pdo->prepare("UPDATE orders SET notified = 1 WHERE id = ?")->execute([$order['id']]);
+        continue;
+    }
+
+    $link = "https://cloud.creativegeek-idn.com/index.php?order=" . urlencode($order['order_number']);
+    $operator = $order['operator_name'] ?? 'Tim Creative Geek';
+
+    $msg = "Halo " . $order['customer_name'] . "! \n\n";
+    $msg .= "BREAKING NEWS: Pesanan #" . $order['order_number'] . " telah SELESAI dan siap diambil!\n";
+    $msg .= "Detail e-receipt:\n" . $link . "\n\n";
+    $msg .= "Alamat kami : Jl. El Tari Km.6 Kel. Maubeli, Kefamenanu, NTT.\n";
+    $msg .= "Lihat di Google Maps: https://www.google.com/maps?q=GF6R%2BR7+Maubeli+North+Central+Timor+Regency+East+Nusa+Tenggara\n\n";
+
+    try {
+        if (sendWhatsAppNotification($order['phone'], $msg)) {
+            $pdo->prepare("UPDATE orders SET notified = 1 WHERE id = ?")->execute([$order['id']]);
+            writeLog("WA sukses untuk #{$order['order_number']}");
+        } else {
+            writeLog("WA gagal untuk #{$order['order_number']}", 'ERROR');
+        }
+    } catch (Exception $e) {
+        writeLog("Exception WA untuk #{$order['order_number']}: " . $e->getMessage(), 'ERROR');
+    }
+}error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../includes/functions.php';
+
+// ===== DEBUG: Tulis log eksekusi =====
+file_put_contents('/var/www/logs/cron_exec.log', date('Y-m-d H:i:s') . " - Cron executed\n", FILE_APPEND);
+
+// ===== Ambil waktu sekarang =====
+$now = date('Y-m-d H:i:s');
+
+// ===== Query order =====
+$stmt = $pdo->prepare("
+    SELECT o.id, o.order_number, o.operator_id,
+           c.name AS customer_name, 
+           c.phone,
+           u.username AS operator_name
+    FROM orders o
+    JOIN customers c ON o.customer_id = c.id
+    LEFT JOIN users u ON o.operator_id = u.id
+    WHERE o.status = 'siap_ambil'
+      AND o.notified = 0
+      AND o.finish_time <= ?
+");
+$stmt->execute([$now]);
+$orders = $stmt->fetchAll();
+
+foreach ($orders as $order) {
+    if (empty($order['phone'])) {
+        $pdo->prepare("UPDATE orders SET notified = 1 WHERE id = ?")->execute([$order['id']]);
+        continue;
+    }
+
+    $link = "https://cloud.creativegeek-idn.com/index.php?order=" . urlencode($order['order_number']);
+    $operator = $order['operator_name'] ?? 'Tim Creative Geek';
+
+    $msg = "Halo " . $order['customer_name'] . "! \n\n";
+    $msg .= "BREAKING NEWS: Pesanan #" . $order['order_number'] . " telah SELESAI dan siap diambil!\n";
+    $msg .= "Detail e-receipt:\n" . $link . "\n\n";
+    $msg .= "Alamat kami : Jl. El Tari Km.6 Kel. Maubeli, Kefamenanu, NTT.\n";
+    $msg .= "Lihat di Google Maps: https://www.google.com/maps?q=GF6R%2BR7+Maubeli+North+Central+Timor+Regency+East+Nusa+Tenggara\n\n";
+
+    try {
+        if (sendWhatsAppNotification($order['phone'], $msg)) {
+            $pdo->prepare("UPDATE orders SET notified = 1 WHERE id = ?")->execute([$order['id']]);
+            writeLog("WA sukses untuk #{$order['order_number']}");
+        } else {
+            writeLog("WA gagal untuk #{$order['order_number']}", 'ERROR');
+        }
+    } catch (Exception $e) {
+        writeLog("Exception WA untuk #{$order['order_number']}: " . $e->getMessage(), 'ERROR');
+    }
+}
+Parse error: Unmatched '}' in /var/www/html/cron/send_ready_notification.php on line 68
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0AB4F03FC15F955C0D1","timestamp":1786391165}, error: 
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB06CB980C1F09E4A7007","timestamp":1786391224}, error: 
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5001 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0F4F9B2D8FAC9F7FA33","timestamp":1786391285}, error: 
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0433A2006A02606AC4D","timestamp":1786391289}, error: 
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0D26D78B4E2C2A2EBE2","timestamp":1786391350}, error: 
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0084818105F64671616","timestamp":1786391525}, error: 
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB09AA50947696EE56429","timestamp":1786391645}, error: 
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 0, response: , error: Operation timed out after 5002 milliseconds with 0 bytes received
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0D3710E233BEECF8097","timestamp":1786391710}, error: 
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB018CC3EFE968E312DC0","timestamp":1786391765}, error: 
+WhatsApp send failed: HTTP 201, response: {"messageId":"true_195829168095335@lid_3EB0E038CCBA9AFF287946","timestamp":1786391770}, error: 
+
+Parse error: Unmatched '}' in /var/www/html/includes/functions.php on line 98
+
+Parse error: Unmatched '}' in /var/www/html/includes/functions.php on line 98
+
+Parse error: Unmatched '}' in /var/www/html/includes/functions.php on line 98
+
+Parse error: Unmatched '}' in /var/www/html/includes/functions.php on line 98
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=0, response=, error=Could not resolve host: openwa-api
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=0, response=, error=Could not resolve host: openwa-api
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=0, response=, error=Could not resolve host: openwa-api
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=0, response=, error=Could not resolve host: openwa-api
+
+Parse error: Unmatched '}' in /var/www/html/includes/functions.php on line 98
+
+Parse error: Unclosed '(' on line 151 in /var/www/html/includes/functions.php on line 155
+
+Parse error: Unclosed '(' on line 151 in /var/www/html/includes/functions.php on line 155
+
+Parse error: Unclosed '(' on line 151 in /var/www/html/includes/functions.php on line 155
+
+Parse error: Unclosed '(' on line 151 in /var/www/html/includes/functions.php on line 155
+
+Parse error: Unclosed '(' on line 151 in /var/www/html/includes/functions.php on line 155
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB05444BDF33F8BE6D634","timestamp":1786394525}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB0EA1264671E8C031109","timestamp":1786394586}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB000E92A83AE9602F553","timestamp":1786394645}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB0F8474D9BE81E7E64EB","timestamp":1786394824}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB0DFF9FA5DA3C5867589","timestamp":1786394829}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB041FFC5185CFF73B3F4","timestamp":1786394885}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB0E07F25A547AB27D745","timestamp":1786394890}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB07B8AA506E5891EA925","timestamp":1786394946}, error=
+WA send: phone=6282236730021, chatId=6282236730021@c.us, httpCode=201, response={"messageId":"true_195829168095335@lid_3EB09A638D7BBAF0559EF2","timestamp":1786394951}, error=
+WA send: phone=6281237418496, chatId=6281237418496@c.us, httpCode=201, response={"messageId":"true_202520861347987@lid_3EB0BF6F59A1D004709C9A","timestamp":1786497066}, error=
+WA send: phone=6282157884909, chatId=6282157884909@c.us, httpCode=201, response={"messageId":"true_79521436975139@lid_3EB0E4B580A25AF391C187","timestamp":1786513448}, error=
+WA send: phone=6282236498441, chatId=6282236498441@c.us, httpCode=201, response={"messageId":"true_198908693213234@lid_3EB0BFBD9C618D809946AD","timestamp":1786513453}, error=
+WA send: phone=6285282300793, chatId=6285282300793@c.us, httpCode=201, response={"messageId":"true_198384740741286@lid_3EB0EB19F82A33EE92A6A8","timestamp":1786527005}, error=
+WA send: phone=6281339493292, chatId=6281339493292@c.us, httpCode=201, response={"messageId":"true_21681112354915@lid_3EB0C8F084AAADB1789DB9","timestamp":1786533610}, error=
+WA send: phone=6282144800700, chatId=6282144800700@c.us, httpCode=201, response={"messageId":"true_67912492646414@lid_3EB0B9F7AF0A6A2552B791","timestamp":1786539425}, error=
+WA send: phone=6281239402241, chatId=6281239402241@c.us, httpCode=201, response={"messageId":"true_211746518208639@lid_3EB0F67269EC812E0F30EC","timestamp":1786539431}, error=
+WA send: phone=6282147923378, chatId=6282147923378@c.us, httpCode=201, response={"messageId":"true_175707263082507@lid_3EB0A99224E075E7408C01","timestamp":1786539435}, error=
+WA send: phone=6285239793105, chatId=6285239793105@c.us, httpCode=201, response={"messageId":"true_228999250899037@lid_3EB0D7C8ED5B79D096D36A","timestamp":1786551126}, error=
+failed to connect to the docker API at unix:///Users/cgnolimit/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/cgnolimit/.docker/run/docker.sock: connect: no such file or directory
+failed to connect to the docker API at unix:///Users/cgnolimit/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/cgnolimit/.docker/run/docker.sock: connect: no such file or directory

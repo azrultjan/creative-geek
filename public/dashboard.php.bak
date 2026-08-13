@@ -1,0 +1,384 @@
+<?php
+session_start();
+require_once '../config/database.php'; // untuk koneksi $pdo
+
+$role = $_SESSION['role'] ?? '';
+
+// Ambil data statistik
+// Total pesanan
+$stmt = $pdo->query("SELECT COUNT(*) as total FROM orders");
+$totalOrders = $stmt->fetch()['total'] ?? 0;
+
+// Total pelanggan
+$stmt = $pdo->query("SELECT COUNT(*) as total FROM customers");
+$totalCustomers = $stmt->fetch()['total'] ?? 0;
+
+// Pendapatan hari ini (untuk admin)
+$stmt = $pdo->query("SELECT SUM(grand_total) as today FROM orders WHERE payment_status = 'lunas' AND DATE(order_date) = CURDATE()");
+$todayRevenue = $stmt->fetch()['today'] ?? 0;
+
+// Total pendapatan (untuk owner)
+$stmt = $pdo->query("SELECT SUM(grand_total) as total FROM orders WHERE payment_status = 'lunas'");
+$totalRevenue = $stmt->fetch()['total'] ?? 0;
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Creative Geek</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <style>
+        /* semua style sama seperti sebelumnya */
+        * { font-family: 'Inter', sans-serif; }
+        body { background: #0a0a0a; color: #e5e7eb; }
+        .sidebar { background: #0d0d0d; border-right: 1px solid #1f1f1f; }
+        .sidebar-link { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 10px; color: #9ca3af; transition: all 0.2s; text-decoration: none; }
+        .sidebar-link:hover { background: #1a1a1a; color: #f5a623; }
+        .sidebar-link.active { background: #1a1a1a; color: #f5a623; font-weight: 600; border-right: 2px solid #f5a623; }
+        .stat-card { background: #111111; border: 1px solid #1f1f1f; border-radius: 16px; padding: 20px; transition: all 0.3s; }
+        .stat-card:hover { border-color: #f5a623; transform: translateY(-4px); box-shadow: 0 10px 40px rgba(245, 166, 35, 0.08); }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+        .stat-icon.orange { background: rgba(245, 166, 35, 0.15); color: #f5a623; }
+        .stat-icon.blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .stat-icon.green { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .stat-icon.purple { background: rgba(168, 85, 247, 0.15); color: #a78bfa; }
+        .stat-number { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+        .stat-label { color: #9ca3af; font-size: 14px; margin-top: 4px; }
+        .stat-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+        .card-dark { background: #111111; border: 1px solid #1f1f1f; border-radius: 16px; padding: 20px; }
+        .btn-gold { background: #f5a623; color: #000; font-weight: 600; padding: 8px 20px; border-radius: 10px; transition: all 0.2s; }
+        .btn-gold:hover { background: #e09515; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(245, 166, 35, 0.3); }
+        .btn-outline { background: transparent; border: 1px solid #2a2a2a; color: #d4d4d8; padding: 8px 20px; border-radius: 10px; transition: all 0.2s; }
+        .btn-outline:hover { border-color: #f5a623; color: #f5a623; }
+        .table-row { border-bottom: 1px solid #1f1f1f; transition: background 0.15s; }
+        .table-row:hover { background: #181818; }
+        .badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+        .badge-green { background: #1a3a2a; color: #4ade80; }
+        .badge-yellow { background: #3a2a1a; color: #fbbf24; }
+        .badge-red { background: #3a1a1a; color: #f87171; }
+        .badge-gray { background: #1a1a1a; color: #9ca3af; }
+        .text-gold { color: #f5a623; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a0a; }
+        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #f5a623; }
+        .border-gold { border-color: #f5a623; }
+        .bg-gold\/10 { background: rgba(245, 166, 35, 0.1); }
+        .gold { color: #f5a623; }
+        .chat-widget { max-height: 260px; overflow-y: auto; }
+        .chat-item { padding: 8px 12px; border-bottom: 1px solid #1f1f1f; cursor: pointer; transition: background 0.2s; }
+        .chat-item:hover { background: #1a1a1a; }
+        .chat-item .unread-badge { background: #f5a623; color: #000; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 380px;
+            width: 100%;
+        }
+        .toast {
+            background: #1a1a1a;
+            border: 1px solid #f5a623;
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            animation: slideIn 0.5s ease, fadeOut 0.5s ease 4.5s forwards;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .toast .icon { font-size: 24px; }
+        .toast .msg { flex: 1; color: #e5e7eb; }
+        .toast .msg strong { color: #f5a623; }
+        .toast .close-toast {
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 0 4px;
+        }
+        .toast .close-toast:hover { color: #fff; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(50px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="flex min-h-screen">
+        <?php include __DIR__ . '/sidebar.php'; ?>
+        <main class="ml-[230px] flex-1 p-6">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Dashboard</h1>
+                    <p class="text-gray-400 text-sm">Selamat datang, <?= htmlspecialchars($_SESSION['username'] ?? 'admin') ?> 👋</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="text-sm text-gray-400" id="clock">🕐 <?= date('H:i:s') ?></span>
+                    <button class="btn-outline text-sm" onclick="window.location.reload()">🔄 Refresh</button>
+                </div>
+            </div>
+
+            <!-- Stat Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <div class="stat-card">
+                    <div class="flex items-center gap-4">
+                        <div class="stat-icon orange">📦</div>
+                        <div>
+                            <div class="stat-number text-gold"><?= $totalOrders ?></div>
+                            <div class="stat-label">Total Pesanan</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="flex items-center gap-4">
+                        <div class="stat-icon blue">👤</div>
+                        <div>
+                            <div class="stat-number text-blue-400"><?= $totalCustomers ?></div>
+                            <div class="stat-label">Total Pelanggan</div>
+                        </div>
+                    </div>
+                </div>
+                <?php if ($role === 'owner'): ?>
+                <!-- Owner: lihat total pendapatan semua -->
+                <div class="stat-card">
+                    <div class="flex items-center gap-4">
+                        <div class="stat-icon green">💰</div>
+                        <div>
+                            <div class="stat-number text-green-400">Rp<?= number_format($totalRevenue, 0, ',', '.') ?></div>
+                            <div class="stat-label">Total Pendapatan</div>
+                            <div class="stat-sub">(Semua waktu)</div>
+                        </div>
+                    </div>
+                </div>
+                <?php else: ?>
+                <!-- Admin/operator: lihat pendapatan hari ini -->
+                <div class="stat-card">
+                    <div class="flex items-center gap-4">
+                        <div class="stat-icon green">💰</div>
+                        <div>
+                            <div class="stat-number text-green-400">Rp<?= number_format($todayRevenue, 0, ',', '.') ?></div>
+                            <div class="stat-label">Pendapatan Hari Ini</div>
+                            <div class="stat-sub"><?= date('d M Y') ?></div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+                <div class="stat-card">
+                    <div class="flex items-center gap-4">
+                        <div class="stat-icon purple">⚡</div>
+                        <div>
+                            <div class="stat-number text-purple-400">0</div>
+                            <div class="stat-label">Pesanan Aktif</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart / Chat Widget & Quick Actions -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <?php if ($role === 'owner'): ?>
+                    <!-- Grafik untuk owner -->
+                    <div class="lg:col-span-2 card-dark">
+                        <h3 class="text-sm font-semibold text-gray-300 mb-4">📈 Pendapatan 6 Bulan Terakhir</h3>
+                        <div id="revenueChart" style="height: 260px;"></div>
+                    </div>
+                <?php else: ?>
+                    <!-- Widget Chat WhatsApp untuk admin/operator -->
+                    <div class="lg:col-span-2 card-dark">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-sm font-semibold text-gray-300">💬 Chat WhatsApp Terbaru <span id="chatBadge" class="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full ml-2" style="display:none;">•</span></h3>
+                            <a href="whatsapp.php" class="text-xs text-gold hover:underline">Lihat semua →</a>
+                        </div>
+                        <div class="chat-widget" id="chatWidget">
+                            <div class="text-center text-gray-500 py-4">⏳ Memuat chat...</div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Quick Actions -->
+                <div class="card-dark flex flex-col gap-3">
+                    <h3 class="text-sm font-semibold text-gray-300">⚡ Aksi Cepat</h3>
+                    <a href="order_form.php" class="btn-gold text-center text-sm block">➕ Tambah Pesanan</a>
+                    <a href="orders.php" class="btn-outline text-center text-sm block">📋 Lihat Pesanan</a>
+                    <a href="customers.php" class="btn-outline text-center text-sm block">👤 Kelola Pelanggan</a>
+                    <?php if ($role === 'owner'): ?>
+                        <a href="users.php" class="btn-outline text-center text-sm block">👥 Kelola User</a>
+                        <a href="finance.php" class="btn-outline text-center text-sm block">💰 Keuangan</a>
+                    <?php else: ?>
+                        <a href="whatsapp.php" class="btn-outline text-center text-sm block">💬 Buka WhatsApp</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Recent Orders -->
+            <div class="card-dark">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-sm font-semibold text-gray-300">📋 Pesanan Terbaru</h3>
+                    <a href="orders.php" class="text-xs text-gold hover:underline">Lihat semua →</a>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-gray-500 border-b border-[#1f1f1f]">
+                                <th class="pb-2">No. Pesanan</th>
+                                <th class="pb-2">Pelanggan</th>
+                                <th class="pb-2">Total</th>
+                                <th class="pb-2">Status</th>
+                                <th class="pb-2">Tanggal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            // Ambil 5 pesanan terbaru
+                            $stmt = $pdo->query("SELECT o.*, c.name as customer_name FROM orders o LEFT JOIN customers c ON o.customer_id = c.id ORDER BY o.order_date DESC LIMIT 5");
+                            $recentOrders = $stmt->fetchAll();
+                            foreach ($recentOrders as $order):
+                                $statusMap = ['diterima'=>'Order Masuk','desain'=>'Proses Desain','cetak'=>'Proses Cetak','finishing'=>'Finishing','siap_ambil'=>'Siap Ambil'];
+                                $statusText = $statusMap[$order['status']] ?? $order['status'];
+                                $badgeClass = $order['status'] == 'siap_ambil' ? 'badge-green' : 'badge-yellow';
+                            ?>
+                            <tr class="table-row">
+                                <td class="py-3 font-mono text-gold"><?= $order['order_number'] ?></td>
+                                <td><?= htmlspecialchars($order['customer_name'] ?? 'Unknown') ?></td>
+                                <td>Rp<?= number_format($order['grand_total'], 0, ',', '.') ?></td>
+                                <td><span class="badge <?= $badgeClass ?>"><?= $statusText ?></span></td>
+                                <td><?= date('d/m/Y', strtotime($order['order_date'])) ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($recentOrders)): ?>
+                            <tr><td colspan="5" class="py-4 text-center text-gray-500">Belum ada pesanan</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <?php if ($role !== 'owner'): ?>
+    <script>
+        // ---------- CHAT WIDGET & NOTIFIKASI ----------
+        let previousChatIds = [];
+
+        function showToast(message, title = '💬 Pesan Baru') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <span class="icon">💬</span>
+                <div class="msg"><strong>${title}</strong><br>${message}</div>
+                <button class="close-toast" onclick="this.parentElement.remove()">✕</button>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => {
+                if (toast.parentElement) toast.remove();
+            }, 5000);
+        }
+
+        async function loadChatWidget() {
+            try {
+                const res = await fetch('whatsapp_ajax.php?action=get_chats&limit=5');
+                const data = await res.json();
+                const container = document.getElementById('chatWidget');
+                const badge = document.getElementById('chatBadge');
+                if (data.success && data.data && data.data.length > 0) {
+                    const currentIds = data.data.map(c => c.id).filter(id => id);
+                    const newChats = currentIds.filter(id => !previousChatIds.includes(id));
+                    
+                    if (newChats.length > 0 && previousChatIds.length > 0) {
+                        const newChatData = data.data.filter(c => newChats.includes(c.id));
+                        newChatData.forEach(chat => {
+                            const name = chat.name || chat.pushName || chat.id || 'Unknown';
+                            const lastMsg = chat.lastMessage?.text || 'Pesan baru';
+                            showToast(`Dari ${name}: ${lastMsg}`, '💬 Chat Baru');
+                        });
+                        try {
+                            const audio = new Audio('data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAACBhYqLh4eGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoaGhoY=');
+                            audio.play().catch(() => {});
+                        } catch(e) {}
+                    }
+
+                    const totalUnread = data.data.reduce((acc, chat) => acc + (chat.unreadCount || 0), 0);
+                    if (totalUnread > 0) {
+                        badge.style.display = 'inline';
+                        badge.textContent = totalUnread;
+                    } else {
+                        badge.style.display = 'none';
+                    }
+
+                    let html = '';
+                    data.data.slice(0, 5).forEach(chat => {
+                        const name = chat.name || chat.pushName || chat.id || 'Unknown';
+                        const lastMsg = chat.lastMessage?.text || 'Tidak ada pesan';
+                        const unread = chat.unreadCount || 0;
+                        html += `<div class="chat-item" onclick="window.location.href='whatsapp.php'">
+                            <div class="flex justify-between">
+                                <span class="font-semibold text-white text-sm">${name}</span>
+                                ${unread > 0 ? `<span class="unread-badge">${unread}</span>` : ''}
+                            </div>
+                            <div class="text-xs text-gray-400 truncate">${lastMsg}</div>
+                        </div>`;
+                    });
+                    container.innerHTML = html;
+                    previousChatIds = currentIds;
+                } else {
+                    container.innerHTML = '<div class="text-center text-gray-500 py-4">📭 Belum ada chat</div>';
+                    badge.style.display = 'none';
+                }
+            } catch (e) {
+                document.getElementById('chatWidget').innerHTML = '<div class="text-center text-red-400 py-4">❌ Gagal memuat chat</div>';
+            }
+        }
+
+        loadChatWidget();
+        setInterval(loadChatWidget, 10000);
+
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    </script>
+    <?php endif; ?>
+
+    <?php if ($role === 'owner'): ?>
+    <script>
+        // ApexChart untuk owner
+        const options = {
+            series: [{ name: 'Pendapatan', data: [0,0,0,0,0,90000] }],
+            chart: { type: 'bar', height: 260, toolbar: { show: false }, background: 'transparent' },
+            plotOptions: { bar: { borderRadius: 6, columnWidth: '50%' } },
+            dataLabels: { enabled: false },
+            colors: ['#f5a623'],
+            grid: { borderColor: '#1f1f1f', strokeDashArray: 4 },
+            xaxis: { categories: ["Mar","Apr","May","Jun","Jul","Aug"], labels: { style: { colors: '#9ca3af', fontSize: '12px' } } },
+            yaxis: { labels: { style: { colors: '#9ca3af', fontSize: '12px' }, formatter: v => 'Rp'+v.toLocaleString('id-ID') } },
+            tooltip: { y: { formatter: v => 'Rp'+v.toLocaleString('id-ID') } }
+        };
+        new ApexCharts(document.querySelector("#revenueChart"), options).render();
+    </script>
+    <?php endif; ?>
+
+    <script>
+        function updateClock() {
+            document.getElementById('clock').textContent = '🕐 ' + new Date().toTimeString().slice(0,8);
+        }
+        setInterval(updateClock, 1000);
+    </script>
+</body>
+</html>

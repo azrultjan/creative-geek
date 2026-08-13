@@ -1,0 +1,51 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: creative-geek-db
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: creative_geek
+      TZ: Asia/Makassar
+    command: --default-time-zone=+08:00
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/init.sql
+
+  web:
+    build: .
+    container_name: creative-geek-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./public:/var/www/html
+      - ./config:/var/www/config
+      - ./includes:/var/www/includes
+      - ./logs:/var/www/logs  
+      - ./ssl:/etc/apache2/ssl
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_DATABASE=creative_geek
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=root
+      - TZ=Asia/Makassar
+    depends_on:
+      - db
+
+  waha:
+    image: devlikeapro/whatsapp-http-api:latest
+    container_name: waha
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./waha-sessions:/app/.sessions
+    environment:
+      - WHATSAPP_API_KEY=CreativeGeek2026SecureKey
+      - WAHA_API_KEY_PLAIN=CreativeGeek2026SecureKey
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WHATSAPP_FILES_LIFETIME=0

@@ -1,0 +1,102 @@
+# =============================================
+# ===== AKTIFKAN MOD_REWRITE =====
+# =============================================
+RewriteEngine On
+
+# =============================================
+# ===== ATURAN REWRITE UTAMA =====
+# =============================================
+
+# --- 1. Hapus .php dari URL (Internal Rewrite) ---
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([^\.]+)$ $1.php [L]
+
+# --- 2. Root / ke dashboard ---
+RewriteRule ^$ dashboard.php [L]
+
+# --- 3. Nota digital: /nota/CG12345 -> index.php?order=CG12345 ---
+RewriteRule ^nota/([A-Z0-9]+)/?$ index.php?order=$1 [L]
+
+# =============================================
+# ===== OPTIMASI PERFORMANCE =====
+# =============================================
+
+# --- 4. KOMPRESI GZIP ---
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/x-javascript
+    AddOutputFilterByType DEFLATE application/rss+xml application/atom+xml
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# --- 5. CACHE BROWSER (Expires) ---
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # Gambar - 1 tahun
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/x-icon "access plus 1 year"
+    
+    # CSS & JS - 1 bulan
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+    
+    # Font - 1 tahun
+    ExpiresByType font/ttf "access plus 1 year"
+    ExpiresByType font/otf "access plus 1 year"
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType application/font-woff "access plus 1 year"
+    ExpiresByType application/font-woff2 "access plus 1 year"
+    
+    # HTML - 1 jam
+    ExpiresByType text/html "access plus 1 hour"
+    
+    # ===== KHUSUS WHATSAPP API =====
+    # JSON dari API - 5 detik (agar tetap up to date tapi tidak terlalu sering request)
+    ExpiresByType application/json "access plus 5 seconds"
+</IfModule>
+
+# --- 6. HEADER UNTUK CACHE ---
+<IfModule mod_headers.c>
+    # Cache gambar & font selama 1 tahun
+    <FilesMatch "\.(ico|pdf|flv|jpg|jpeg|png|gif|svg|webp|js|css|swf|ttf|woff|woff2)$">
+        Header set Cache-Control "max-age=31536000, public"
+    </FilesMatch>
+    
+    # Cache HTML sebentar (1 jam)
+    <FilesMatch "\.(html|htm)$">
+        Header set Cache-Control "max-age=3600, must-revalidate"
+    </FilesMatch>
+    
+    # ===== KHUSUS WHATSAPP AJAX =====
+    # Cache response JSON dari whatsapp_ajax.php selama 3 detik
+    <FilesMatch "whatsapp_ajax\.php$">
+        Header set Cache-Control "max-age=3, must-revalidate"
+    </FilesMatch>
+</IfModule>
+
+# =============================================
+# ===== KEAMANAN DASAR =====
+# =============================================
+
+# --- 7. Lindungi file .htaccess itu sendiri ---
+<Files .htaccess>
+    Order allow,deny
+    Deny from all
+</Files>
+
+# --- 8. Matikan directory listing ---
+Options -Indexes
+
+# --- 9. Blokir akses ke file cache ---
+<FilesMatch "\.(cache)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

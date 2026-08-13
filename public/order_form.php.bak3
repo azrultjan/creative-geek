@@ -1,0 +1,537 @@
+<?php
+require_once '../includes/auth.php';
+requireLogin();
+require_once '../config/database.php';
+require_once '../includes/functions.php';
+
+$id = $_GET['id'] ?? 0;
+$is_edit = $id > 0;
+
+$order = null;
+$items = [];
+if ($is_edit) {
+    $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ?");
+    $stmt->execute([$id]);
+    $order = $stmt->fetch();
+    if (!$order) die('Pesanan tidak ditemukan.');
+    $stmt_items = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
+    $stmt_items->execute([$id]);
+    $items = $stmt_items->fetchAll();
+}
+
+$customers = $pdo->query("SELECT * FROM customers ORDER BY name")->fetchAll();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $customer_id = $_POST['customer_id'] ?? '';
+    if (empty($customer_id) || !is_numeric($customer_id)) {
+        die('Error: Silakan pilih pelanggan yang valid.');
+    }
+    $customer_id = (int)$customer_id;
+    $status = $_POST['status'] ?? 'diterima';
+    $payment_status = $_POST['payment_status'] ?? 'belum';
+    $payment_method = $_POST['payment_method'] ?? 'Cash';
+    $subtotal = $_POST['subtotal'] ?? 0;
+    $discount = $_POST['discount'] ?? 0;
+    $grand_total = $_POST['grand_total'] ?? 0;
+    $notes = $_POST['notes'] ?? '';
+
+    $product_names = $_POST['product_name'] ?? [];
+    $qtys = $_POST['qty'] ?? [];
+    $prices = $_POST['price'] ?? [];
+    $materials = $_POST['material'] ?? [];
+    $item_notes = $_POST['item_notes'] ?? [];
+    $totals = $_POST['item_total'] ?? [];
+
+    if ($is_edit) {
+        $pdo->prepare("UPDATE orders SET customer_id=?, status=?, payment_status=?, payment_method=?, subtotal=?, discount=?, grand_total=?, notes=? WHERE id=?")
+            ->execute([$customer_id, $status, $payment_status, $payment_method, $subtotal, $discount, $grand_total, $notes, $id]);
+        $pdo->prepare("DELETE FROM order_items WHERE order_id = ?")->execute([$id]);
+    } else {
+        $order_number = generateOrderNumber();
+        $pdo->prepare("INSERT INTO orders (order_number, customer_id, status, payment_status, payment_method, subtotal, discount, grand_total, notes) VALUES (?,?,?,?,?,?,?,?,?)")
+            ->execute([$order_number, $customer_id, $status, $payment_status, $payment_method, $subtotal, $discount, $grand_total, $notes]);
+        $id = $pdo->lastInsertId();
+    }
+
+    for ($i = 0; $i < count($product_names); $i++) {
+        if (!empty($product_names[$i])) {
+            $pdo->prepare("INSERT INTO order_items (order_id, product_name, qty, price_per_unit, material, notes, total) VALUES (?,?,?,?,?,?,?)")
+                ->execute([$id, $product_names[$i], $qtys[$i], $prices[$i], $materials[$i], $item_notes[$i], $totals[$i]]);
+        }
+    }
+
+    // Kirim notifikasi WhatsApp jika pesanan baru
+    if (!$is_edit) {
+        $customer = $pdo->prepare("SELECT phone, name FROM customers WHERE id = ?")->execute([$customer_id]) ? $pdo->query("SELECT phone, name FROM customers WHERE id = $customer_id")->fetch() : null;
+        if ($customer && !empty($customer['phone'])) {
+            $customerName = $customer['name'] ?? 'Kak';
+            $message = "Halo $customerName.\nBerikut kami kirim bukti transaksi percetakan melalui e-receipt:\nhttps://cloud.creativegeek-idn.com/index.php?order={$order_number}\nTerima kasih telah bertransaksi di Creative Geek =)";
+            sendWhatsAppNotification($customer['phone'], $message);
+        }
+    }
+
+    header('Location: orders.php?msg=updated');
+    exit;
+}
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?= $is_edit ? 'Edit' : 'Tambah' ?> Pesanan - Creative Geek</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #0a0a0a; color: white; }
+        .card-dark { background: #151515; border: 1px solid #2a2a2a; border-radius: 12px; }
+        .text-gold { color: #F5A623; }
+        .bg-gold { background: #F5A623; }
+        .hover-gold:hover { background: #e09515; }
+        input, select, textarea {
+            background: #0a0a0a;
+            border: 1px solid #2a2a2a;
+            color: #ffffff !important;
+            padding: 8px 12px;
+            border-radius: 8px;
+            width: 100%;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #F5A623;
+        }
+        input::placeholder, textarea::placeholder {
+            color: #666;
+        }
+        .item-row {
+            background: #0d0d0d;
+            border: 1px solid #222;
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .item-row .grid {
+            gap: 8px;
+        }
+        .dynamic-field {
+            transition: all 0.3s ease;
+        }
+        .customer-search { position: relative; }
+        .customer-search input { padding-right: 30px; }
+        .customer-search .dropdown-icon {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #888;
+            pointer-events: none;
+        }
+        input::-webkit-calendar-picker-indicator {
+            opacity: 0;
+            position: absolute;
+            right: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <nav class="bg-[#151515] border-b border-[#222] p-4 flex justify-between items-center">
+        <span class="font-bold text-xl text-gold">CREATIVE GEEK</span>
+        <div>
+            <a href="dashboard.php" class="mr-4 text-gold hover:underline">Dashboard</a>
+            <a href="orders.php" class="mr-4 text-gold hover:underline">Pesanan</a>
+            <a href="logout.php" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 text-sm">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-6 max-w-5xl">
+        <h1 class="text-2xl font-bold text-gold mb-6"><?= $is_edit ? '✏️ Edit' : '➕ Tambah' ?> Pesanan</h1>
+
+        <form method="POST" class="card-dark p-6" id="orderForm">
+            <!-- Customer dengan Search -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300">Pelanggan *</label>
+                <div class="customer-search">
+                    <input type="text" id="customer_search" list="customer_list" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" placeholder="Ketik nama pelanggan..." autocomplete="off">
+                    <datalist id="customer_list"></datalist>
+                    <input type="hidden" name="customer_id" id="customer_id" value="<?= $is_edit ? $order['customer_id'] : '' ?>">
+                    <span class="dropdown-icon">▼</span>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">Ketik nama pelanggan, pilih dari daftar yang muncul (case insensitive).</p>
+                <div id="customer_error" class="text-red-500 text-xs mt-1 hidden">Silakan pilih pelanggan dari daftar yang tersedia.</div>
+            </div>
+
+            <!-- Status -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300">Status</label>
+                <select name="status">
+                    <?php foreach (getStatuses() as $s): ?>
+                        <option value="<?= $s ?>" <?= ($is_edit && $order['status'] == $s) ? 'selected' : '' ?>><?= getStatusLabel($s) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- Payment -->
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Status Bayar</label>
+                    <select name="payment_status">
+                        <option value="belum" <?= ($is_edit && $order['payment_status'] == 'belum') ? 'selected' : '' ?>>Belum Bayar</option>
+                        <option value="lunas" <?= ($is_edit && $order['payment_status'] == 'lunas') ? 'selected' : '' ?>>Lunas</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Metode Bayar</label>
+                    <select name="payment_method" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white">
+                        <option value="Cash" <?= ($is_edit && $order['payment_method'] == 'Cash') ? 'selected' : '' ?>>Cash</option>
+                        <option value="Transfer" <?= ($is_edit && $order['payment_method'] == 'Transfer') ? 'selected' : '' ?>>Transfer</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- ITEMS -->
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-300">Item Pesanan</label>
+                    <button type="button" id="add-item" class="text-gold text-sm hover:underline">+ Tambah Item</button>
+                </div>
+                <div id="items-container">
+                    <?php if ($is_edit && count($items) > 0): ?>
+                        <?php foreach ($items as $item): ?>
+                            <div class="item-row">
+                                <?php include '_item_template.php'; ?>
+                                <script>
+                                    (function() {
+                                        const row = document.currentScript.closest('.item-row');
+                                        row.querySelector('.product-name-input').value = <?= json_encode($item['product_name']) ?>;
+                                        row.querySelector('.qty-input').value = <?= $item['qty'] ?>;
+                                        row.querySelector('.price-input').value = <?= $item['price_per_unit'] ?>;
+                                        row.querySelector('.item-total').value = <?= $item['total'] ?>;
+                                        row.querySelector('.material-input').value = <?= json_encode($item['material'] ?? '-') ?>;
+                                    })();
+                                </script>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="item-row">
+                            <?php include '_item_template.php'; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Total -->
+            <div class="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Subtotal</label>
+                    <input type="number" name="subtotal" id="subtotal" value="<?= $is_edit ? $order['subtotal'] : 0 ?>" step="0.01" readonly class="bg-gray-800 cursor-not-allowed">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Diskon</label>
+                    <input type="number" name="discount" id="discount" value="<?= $is_edit ? $order['discount'] : 0 ?>" step="0.01">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Total</label>
+                    <input type="number" name="grand_total" id="grand_total" value="<?= $is_edit ? $order['grand_total'] : 0 ?>" step="0.01" readonly class="bg-gray-800 cursor-not-allowed">
+                </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300">Catatan Pesanan</label>
+                <textarea name="notes" rows="2"><?= $is_edit ? htmlspecialchars($order['notes']) : '' ?></textarea>
+            </div>
+
+            <button type="submit" class="bg-gold text-black px-6 py-2 rounded font-bold hover:bg-[#e09515] transition">Simpan Pesanan</button>
+            <a href="orders.php" class="text-gray-400 ml-3">Batal</a>
+        </form>
+    </div>
+
+    <!-- Template item -->
+    <div id="item-template" style="display: none;">
+        <?php include '_item_template.php'; ?>
+    </div>
+
+    <script>
+        // ============== CUSTOMER SEARCH ==============
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('customer_search');
+            const hiddenId = document.getElementById('customer_id');
+            const datalist = document.getElementById('customer_list');
+            const errorDiv = document.getElementById('customer_error');
+
+            const allCustomers = <?= json_encode(array_map(function($c) {
+                return ['id' => $c['id'], 'name' => $c['name']];
+            }, $customers)) ?>;
+
+            function updateDatalist(query) {
+                const trimmed = query.trim();
+                let filtered = allCustomers.filter(c => 
+                    c.name.toLowerCase().includes(trimmed.toLowerCase())
+                );
+                filtered = filtered.slice(0, 5);
+                datalist.innerHTML = '';
+                if (filtered.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = 'Tidak ditemukan';
+                    datalist.appendChild(opt);
+                } else {
+                    filtered.forEach(c => {
+                        const option = document.createElement('option');
+                        option.value = c.name;
+                        option.dataset.id = c.id;
+                        datalist.appendChild(option);
+                    });
+                }
+                updateHiddenId();
+            }
+
+            function updateHiddenId() {
+                const val = searchInput.value.trim();
+                const matched = allCustomers.find(c => c.name === val);
+                if (matched) {
+                    hiddenId.value = matched.id;
+                    errorDiv.classList.add('hidden');
+                } else {
+                    hiddenId.value = '';
+                    if (val !== '' && val !== 'Tidak ditemukan') {
+                        errorDiv.classList.remove('hidden');
+                    } else {
+                        errorDiv.classList.add('hidden');
+                    }
+                }
+            }
+
+            searchInput.addEventListener('input', function() { updateDatalist(this.value); });
+            searchInput.addEventListener('change', function() { updateHiddenId(); });
+            updateDatalist('');
+
+            <?php if ($is_edit && $order): ?>
+                const customerName = <?= json_encode($order['customer_name'] ?? '') ?>;
+                if (customerName) {
+                    searchInput.value = customerName;
+                    hiddenId.value = <?= $order['customer_id'] ?>;
+                    errorDiv.classList.add('hidden');
+                }
+            <?php endif; ?>
+
+            document.getElementById('orderForm').addEventListener('submit', function(e) {
+                if (!hiddenId.value || hiddenId.value === '') {
+                    e.preventDefault();
+                    errorDiv.classList.remove('hidden');
+                    searchInput.focus();
+                    alert('Silakan pilih pelanggan yang valid dari daftar.');
+                }
+            });
+        });
+
+        // ============== HANYA ANGKA UNTUK LEBAR & TINGGI ==============
+        document.addEventListener('input', function(e) {
+            if (e.target.classList.contains('angka-only')) {
+                e.target.value = e.target.value.replace(/[^0-9.,]/g, '');
+            }
+        });
+
+        // ============== HARGA DARI DATABASE ==============
+        const priceList = {
+            spanduk: {
+                '1x1': <?= $priceData['spanduk']['1x1'] ?? 45000 ?>
+            },
+            sticker: {
+                label: {
+                    'A4': <?= $priceData['sticker']['label']['A4'] ?? 12000 ?>,
+                    'A3': <?= $priceData['sticker']['label']['A3'] ?? 22000 ?>
+                },
+                decal: <?= $priceData['sticker']['decal'] ?? 1500 ?>
+            },
+            sablon: {
+                'A3': <?= $priceData['sablon']['A3'] ?? 45000 ?>
+            }
+        };
+
+        // ============== UPDATE HARGA ==============
+        function updatePrice(row) {
+    console.log("updatePrice dipanggil untuk row:", row.dataset.isEdit);
+    if (row.dataset.isEdit === "true") { return; }
+            const category = row.querySelector('.product-category').value;
+            const priceInput = row.querySelector('.price-input');
+            const nameInput = row.querySelector('.product-name-input');
+            const materialInput = row.querySelector('.material-input');
+
+            let price = 0;
+            let productName = '';
+            let material = '-';
+
+            if (category === 'spanduk') {
+                const namaSpanduk = row.querySelector('.spanduk-nama').value || '';
+                const lebar = parseFloat(row.querySelector('.spanduk-lebar').value) || 0;
+                const tinggi = parseFloat(row.querySelector('.spanduk-tinggi').value) || 0;
+                const ukuran = (lebar && tinggi) ? lebar + 'x' + tinggi : '';
+                productName = 'Spanduk' + (namaSpanduk ? ' ' + namaSpanduk : '') + (ukuran ? ' ' + ukuran : '');
+                productName = productName.trim();
+                material = '-';
+                const luas = lebar * tinggi;
+                price = luas * (priceList.spanduk['1x1'] || 45000);
+            } 
+            else if (category === 'sticker') {
+                const type = row.querySelector('.sticker-type').value;
+                if (type === 'label') {
+                    const size = row.querySelector('.sticker-label-size').value;
+                    productName = 'Sticker Label ' + size;
+                    material = '-';
+                    price = priceList.sticker.label[size] || 0;
+                } else if (type === 'decal') {
+                    const panjang = parseFloat(row.querySelector('.decal-panjang').value) || 0;
+                    const lebar = parseFloat(row.querySelector('.decal-lebar').value) || 0;
+                    const luas = panjang * lebar;
+                    productName = 'Sticker Decal ' + panjang + 'x' + lebar + ' cm';
+                    material = '-';
+                    price = luas * (priceList.sticker.decal || 1500);
+                }
+            } 
+            else if (category === 'sablon') {
+                const size = row.querySelector('.sablon-size').value;
+                productName = 'Sablon A3';
+                material = '-';
+                price = priceList.sablon[size] || 0;
+            } 
+            else { // Lainnya
+                productName = nameInput.value || 'Produk Lain';
+                material = materialInput.value || '';
+                price = parseFloat(priceInput.value) || 0;
+            }
+
+            if (category !== 'lainnya') {
+                nameInput.value = productName;
+                materialInput.value = material;
+            }
+
+            if (price > 0) {
+                priceInput.value = price.toFixed(0);
+            } else {
+                if (category !== 'lainnya') {
+                    priceInput.value = '0';
+                }
+            }
+
+            const qty = parseInt(row.querySelector('.qty-input').value) || 1;
+            const totalInput = row.querySelector('.item-total');
+            const currentPrice = parseFloat(priceInput.value) || 0;
+            totalInput.value = (qty * currentPrice).toFixed(0);
+
+            recalculateTotal();
+        }
+
+        // ============== TOGGLE DYNAMIC FIELDS ==============
+        function toggleDynamicFields(row) {
+            const category = row.querySelector('.product-category').value;
+            const nameInput = row.querySelector('.product-name-input');
+            const materialInput = row.querySelector('.material-input');
+
+            row.querySelectorAll('.dynamic-field').forEach(el => el.style.display = 'none');
+
+            if (category === 'spanduk') {
+                row.querySelector('.spanduk-field').style.display = 'block';
+                nameInput.readOnly = true;
+                materialInput.readOnly = false;
+            } else if (category === 'sticker') {
+                const type = row.querySelector('.sticker-type').value;
+                row.querySelector('.sticker-field').style.display = 'block';
+                if (type === 'label') {
+                    row.querySelector('.sticker-label-field').style.display = 'block';
+                    row.querySelector('.sticker-decal-field').style.display = 'none';
+                } else if (type === 'decal') {
+                    row.querySelector('.sticker-decal-field').style.display = 'block';
+                    row.querySelector('.sticker-label-field').style.display = 'none';
+                }
+                nameInput.readOnly = true;
+                materialInput.readOnly = false;
+            } else if (category === 'sablon') {
+                row.querySelector('.sablon-field').style.display = 'block';
+                nameInput.readOnly = true;
+                materialInput.readOnly = false;
+            } else {
+                row.querySelector('.manual-field').style.display = 'block';
+                nameInput.readOnly = false;
+                materialInput.readOnly = false;
+                nameInput.value = '';
+                materialInput.value = '';
+            }
+
+            updatePrice(row);
+        }
+
+        function recalculateTotal() {
+            let subtotal = 0;
+            document.querySelectorAll('.item-row').forEach(row => {
+                const total = parseFloat(row.querySelector('.item-total').value) || 0;
+                subtotal += total;
+            });
+            const discount = parseFloat(document.getElementById('discount').value) || 0;
+            const grand = subtotal - discount;
+            document.getElementById('subtotal').value = subtotal.toFixed(0);
+            document.getElementById('grand_total').value = grand.toFixed(0);
+        }
+
+        function bindEvents(row) {
+            row.querySelector('.product-category').addEventListener('change', function() {
+                toggleDynamicFields(row);
+            });
+
+            row.querySelector('.sticker-type').addEventListener('change', function() {
+                toggleDynamicFields(row);
+            });
+
+            const triggers = row.querySelectorAll('.price-trigger');
+            triggers.forEach(el => {
+                el.addEventListener('change', function() { updatePrice(row); });
+                el.addEventListener('input', function() { updatePrice(row); });
+            });
+
+            row.querySelector('.qty-input').addEventListener('input', function() { updatePrice(row); });
+
+            row.querySelector('.price-input').addEventListener('input', function() {
+                const category = row.querySelector('.product-category').value;
+                if (category === 'lainnya' || parseFloat(row.querySelector('.price-input').defaultValue) === 0) {
+                    const qty = parseInt(row.querySelector('.qty-input').value) || 1;
+                    const price = parseFloat(this.value) || 0;
+                    row.querySelector('.item-total').value = (qty * price).toFixed(0);
+                    recalculateTotal();
+                }
+            });
+
+            row.querySelector('.remove-item').addEventListener('click', function() {
+                if (document.querySelectorAll('.item-row').length > 1) {
+                    row.remove();
+                    recalculateTotal();
+                } else {
+                    alert('Minimal 1 item.');
+                }
+            });
+        }
+
+        document.querySelectorAll('.item-row').forEach(row => {
+            toggleDynamicFields(row);
+            bindEvents(row);
+        });
+
+        document.getElementById('add-item').addEventListener('click', function() {
+            const container = document.getElementById('items-container');
+            const template = document.getElementById('item-template').innerHTML;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'item-row';
+            wrapper.innerHTML = template;
+            container.appendChild(wrapper);
+            toggleDynamicFields(wrapper);
+            bindEvents(wrapper);
+        });
+
+        document.getElementById('discount').addEventListener('input', function() {
+            recalculateTotal();
+        });
+
+        recalculateTotal();
+    </script>
+</body>
+</html>

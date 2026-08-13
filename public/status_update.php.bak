@@ -1,0 +1,73 @@
+<?php
+require_once '../includes/auth.php';
+requireLogin();
+require_once '../config/database.php';
+require_once '../includes/functions.php';
+
+$id = $_GET['id'] ?? 0;
+if (!$id) die('ID tidak valid.');
+
+$stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ?");
+$stmt->execute([$id]);
+$order = $stmt->fetch();
+if (!$order) die('Pesanan tidak ditemukan.');
+
+$statuses = getStatuses();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $new_status = $_POST['status'] ?? '';
+    if (in_array($new_status, $statuses)) {
+        $pdo->prepare("UPDATE orders SET status = ? WHERE id = ?")->execute([$new_status, $id]);
+
+        // Kirim notifikasi WhatsApp ke customer
+        $customer = $pdo->prepare("SELECT phone, name FROM customers WHERE id = ?")->execute([$order['customer_id']]) ? $pdo->query("SELECT phone, name FROM customers WHERE id = {$order['customer_id']}")->fetch() : null;
+        if ($customer && !empty($customer['phone'])) {
+            $statusLabel = getStatusLabel($new_status);
+            $customerName = $customer['name'] ?? 'Kak';
+            $message = "Halo $customerName.\nStatus pesanan Anda #{$order['order_number']} telah diperbarui menjadi: '{$statusLabel}'.\nCek detail melalui e-receipt:\nhttps://cloud.creativegeek-idn.com/index.php?order={$order['order_number']}\nTerima kasih telah bertransaksi di Creative Geek =)";
+            sendWhatsAppNotification($customer['phone'], $message);
+        }
+
+        header('Location: orders.php?msg=updated');
+        exit;
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Update Status - Creative Geek</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #0a0a0a; color: white; }
+        .card-dark { background: #151515; border: 1px solid #2a2a2a; border-radius: 12px; }
+        .text-gold { color: #F5A623; }
+        .bg-gold { background: #F5A623; }
+        .hover-gold:hover { background: #e09515; }
+        select { background: #0a0a0a; border: 1px solid #2a2a2a; color: white; padding: 8px 12px; border-radius: 8px; width: 100%; }
+        select:focus { outline: none; border-color: #F5A623; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+    <div class="card-dark p-6 w-full max-w-md">
+        <h2 class="text-xl font-bold text-gold mb-4">🔁 Update Status</h2>
+        <p class="text-sm text-gray-400">Pesanan: <b class="text-gold"><?= $order['order_number'] ?></b></p>
+        <p class="text-sm text-gray-400">Status Saat Ini: <b><?= getStatusLabel($order['status']) ?></b></p>
+
+        <form method="POST" class="mt-4">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300">Pilih Status Baru</label>
+                <select name="status">
+                    <?php foreach ($statuses as $s): ?>
+                        <option value="<?= $s ?>" <?= $s == $order['status'] ? 'selected' : '' ?>><?= getStatusLabel($s) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <button type="submit" class="bg-gold text-black px-4 py-2 rounded font-bold hover:bg-[#e09515] transition">Update</button>
+            <a href="orders.php" class="text-gray-400 ml-3">Batal</a>
+        </form>
+    </div>
+</body>
+</html>
